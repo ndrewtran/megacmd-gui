@@ -14,8 +14,10 @@
         [--name "My Mac"] [--megacmd /path/to/megacmd]
 
    One-liner (pulls this script from a running megacmd-gui):
-     curl -fsSL http://host:3010/agent.js | node -- \
+     curl -fsSL http://host:3010/agent.js | node - \
         --server http://host:3010 --token <GUI_ACCESS_TOKEN> --name "My Mac"
+     (The "-" makes node read the piped script from stdin; everything after
+     it is passed to the agent as arguments.)
 
    Only the token you pass is stored in process memory; nothing is written
    to disk. The agent executes:

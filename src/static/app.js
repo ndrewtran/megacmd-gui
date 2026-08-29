@@ -506,7 +506,7 @@ const modalCtx = { verified: false };
 
 function pcAgentCommand(name) {
   const token = localStorage.getItem('meganet.token') || '<access-token>';
-  return `curl -fsSL ${location.origin}/agent.js | node -- --server ${location.origin} --name "${name || 'This PC'}" --token ${token}`;
+  return `curl -fsSL ${location.origin}/agent.js | node - --server ${location.origin} --name "${name || 'This PC'}" --token ${token}`;
 }
 
 async function refreshPcAgentPill() {
