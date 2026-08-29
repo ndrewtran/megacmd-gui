@@ -88,12 +88,14 @@ zero-dependency **bridge agent** runs on your computer and dials the GUI over We
 `WebSocket`, no `npm install`). Grab the script from the running app and pipe it to node:
 
 ```bash
-curl -fsSL http://<panel-host>:3010/agent.js | node -- \
+curl -fsSL http://<panel-host>:3010/agent.js | node - \
   --server http://<panel-host>:3010 \
   --token <ACCESS_TOKEN> \
   --name "My Mac" \
   --megacmd /Applications/MEGAcmd.app/Contents/MacOS/mega-exec
 ```
+
+(`node -` reads the piped script from stdin; the flags after it go to the agent.)
 
 The instance form (type **This PC**) shows this exact one-liner with your server URL and a
 **Copy** button, plus a live *agent online/offline* pill. The `--name` is the link key: the
