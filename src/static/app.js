@@ -455,16 +455,24 @@ $('#btn-test').addEventListener('click', async () => {
   const inst = activeInstance();
   if (!inst) return;
   toast('Testing connection…');
-  const res = await api(`/api/instances/${inst.id}/test`, 'POST', {});
-  toast(res.ok ? `Connected — MEGA: ${res.megaUser || 'not logged in'}` : `Test failed: ${res.output}`, res.ok ? 'ok' : 'err');
-  if (res.megaUser) api(`/api/instances/${inst.id}/status`).catch(() => undefined);
+  try {
+    const res = await api(`/api/instances/${inst.id}/test`, 'POST', {});
+    toast(res.ok ? `Connected — MEGA: ${res.megaUser || 'not logged in'}` : `Test failed: ${res.output}`, res.ok ? 'ok' : 'err');
+    if (res.megaUser) api(`/api/instances/${inst.id}/status`).catch(() => undefined);
+  } catch (err) {
+    toast(`Test failed: ${err.message}`, 'err');
+  }
 });
 
 $('#btn-status').addEventListener('click', async () => {
   const inst = activeInstance();
   if (!inst) return;
-  const res = await api(`/api/instances/${inst.id}/status`);
-  toast(res.ok ? `MEGA account: ${res.megaUser}` : `Not logged in: ${res.output}`, res.ok ? 'ok' : 'err');
+  try {
+    const res = await api(`/api/instances/${inst.id}/status`);
+    toast(res.ok ? `MEGA account: ${res.megaUser}` : `Not logged in: ${res.output}`, res.ok ? 'ok' : 'err');
+  } catch (err) {
+    toast(`Status check failed: ${err.message}`, 'err');
+  }
 });
 
 $('#btn-login').addEventListener('click', () => {

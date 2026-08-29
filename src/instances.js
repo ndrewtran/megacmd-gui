@@ -399,7 +399,7 @@ class InstanceManager {
             else if (code !== 0) reject(new Error(output.trim() || `exited with code ${code}`));
             else resolve(output);
           },
-        });
+        }).catch((err) => reject(err)); // e.g. agent offline — propagate, never leave unhandled
       });
     }
     return inst._ssh.execCapture(args);

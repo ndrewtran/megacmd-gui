@@ -273,6 +273,12 @@ const server = http.createServer(async (req, res) => {
 hub.attach(server);
 agents.attach(server);
 
+// Defense in depth: a stray unhandled rejection must never take down the
+// whole deployment (Node >= 15 treats them as fatal by default).
+process.on('unhandledRejection', (err) => {
+  console.error('[server] unhandled rejection (logged, not fatal):', err);
+});
+
 server.listen(config.port, config.host, () => {
   console.log(`MEGAcmd Web listening on http://${config.host}:${config.port}`);
   if (config.accessToken) {
