@@ -112,11 +112,13 @@ State lives in `/data`; the container is non-root and has a `/healthz` healthche
 
 ### Deploying on Easypanel (GitHub source — recommended)
 
-Easypanel supports a first-class **GitHub** git source, which clones using the panel's
-existing GitHub integration — so **no panel-side git SSH key is needed** and private
-repos work:
+Easypanel supports a first-class **GitHub** git source. It fetches the repo as a tarball
+via the GitHub API (log step "Download Github Archive"), so **no panel-side git SSH key
+is needed**. One catch: the archive download is anonymous — the repo must be **public**
+(a private repo silently skips the build step and the deploy just records the commit).
 
-1. Push this repo to GitHub, e.g. `https://github.com/<owner>/megacmd-gui` (private is fine).
+1. Push this repo to GitHub (e.g. `https://github.com/<owner>/megacmd-gui`) and make it
+   **public**. (The repo contains no secrets — the access token lives on the panel.)
 2. In Easypanel: **Create project** → name it `megacmd-gui`, then add an **app** service:
    - Source: **GitHub** — owner `<owner>`, repo `megacmd-gui`, branch `main`, path `/`
    - Build file: `Dockerfile`
@@ -125,12 +127,16 @@ repos work:
    - `ACCESS_TOKEN=<random-secret>` *(generate: `openssl rand -hex 16`)*
    - `TZ=UTC` (or your zone)
 4. **Volumes**: named volume at `/data` (state).
-5. **Ports**: publish `3000` (target `3000`, tcp).
-6. **Domain** (optional): destination port `3000`, protocol `http` (TLS termination at Traefik).
-7. **Deploy** — use the **Deploy button in the UI**. Note: the `deployService` RPC only
-   syncs the git commit; the Dockerfile build + container start is driven by the UI
-   deploy flow. The first deployment builds the image on the panel (a few minutes) —
-   watch the service logs until it prints `MEGAcmd Web listening on http://0.0.0.0:3000`.
+5. **Ports**: publish `3010` (target `3000`, tcp). ⚠️ Don't publish `3000` on the host —
+   the Easypanel UI itself owns port 3000, and a conflicting `docker compose up` fails
+   silently (deploy reports "Success", no container starts).
+6. **Domain** (optional): destination port `3000` (container port), protocol `http`
+   (TLS termination at Traefik).
+7. **Deploy** — the UI Deploy button, or the `deployService` RPC. Creating the service
+   triggers the first build + start automatically; later deploys build when the commit
+   changes (a same-commit deploy is a fast no-op). The first build takes a few minutes.
+
+Result: `http://<panel-host>:3010` — enter the access token on the login screen.
 
 **Alternative — generic git source (Forgejo / self-hosted, SSH):** point the source at a
 `ssh://git@<git-host>:<port>/<owner>/megacmd-gui.git` repo with the `Dockerfile` at its
