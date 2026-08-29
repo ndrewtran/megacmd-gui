@@ -1,0 +1,22 @@
+{
+  "name": "megacmd-gui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Web GUI for the MEGAcmd CLI — queue and manage MEGA downloads across local and SSH-connected instances with live progress",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ssh2": "^1.17.0",
+    "ws": "^8.18.0"
+  },
+  "allowScripts": {
+    "cpu-features@0.0.10": true,
+    "ssh2@1.17.0": true
+  }
+}

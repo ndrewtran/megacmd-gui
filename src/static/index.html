@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MEGAcmd Web</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%9B%B0%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- token gate -->
+  <div id="gate" class="gate hidden">
+    <div class="gate-card">
+      <div class="gate-logo">🌐</div>
+      <h1>MEGAcmd Web</h1>
+      <p>Enter the access token to continue.</p>
+      <form id="gate-form">
+        <input id="gate-token" type="password" placeholder="Access token" autocomplete="current-password" autofocus>
+        <button type="submit">Unlock</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="app" class="app hidden">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">☁</span>
+        <div>
+          <h1>MEGAcmd Web</h1>
+          <p>download control</p>
+        </div>
+      </div>
+      <nav id="instance-list" class="instance-list"></nav>
+      <div class="sidebar-foot">
+        <button id="btn-add-instance" class="btn ghost full">+ Add instance</button>
+        <div id="conn-status" class="conn-status">connecting…</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div id="empty-state" class="empty hidden">
+        <div class="empty-icon">🖥️</div>
+        <h2>No instances yet</h2>
+        <p>Add your local MEGAcmd, or a remote VPS over SSH, to start queuing downloads.</p>
+        <button class="btn primary" onclick="document.getElementById('btn-add-instance').click()">Add your first instance</button>
+      </div>
+
+      <div id="instance-view" class="hidden">
+        <header class="inst-head card">
+          <div class="inst-id">
+            <div class="inst-name-row">
+              <h2 id="inst-name">—</h2>
+              <span id="inst-status" class="pill">—</span>
+            </div>
+            <p id="inst-meta" class="muted small">—</p>
+          </div>
+          <div class="inst-actions">
+            <button id="btn-test" class="btn">Test</button>
+            <button id="btn-status" class="btn">Check MEGA login</button>
+            <button id="btn-login" class="btn">Login</button>
+            <button id="btn-edit" class="btn primary">Edit</button>
+          </div>
+        </header>
+
+        <section class="card">
+          <h3 class="section-title">Queue a transfer</h3>
+          <form id="new-job-form" class="job-form">
+            <div class="row">
+              <label>
+                <span>Action</span>
+                <select id="jf-action">
+                  <option value="get">Download (get)</option>
+                  <option value="put">Upload (put)</option>
+                </select>
+              </label>
+              <label class="grow">
+                <span>MEGA link · handle (H:…) · remote path</span>
+                <input id="jf-source" type="text" placeholder="https://mega.nz/…  ·  H:abc123  ·  /folder/file.mp4">
+              </label>
+            </div>
+            <div class="row">
+              <label>
+                <span>Password (protected link)</span>
+                <input id="jf-password" type="password" placeholder="optional">
+              </label>
+              <label>
+                <span>Destination (default: instance download dir)</span>
+                <input id="jf-dest" type="text" placeholder="">
+              </label>
+              <button type="submit" class="btn primary">Queue ▸</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="card">
+          <div class="section-head">
+            <h3 class="section-title">Queue</h3>
+            <div class="section-tools">
+              <span id="queue-count" class="muted small"></span>
+              <button id="btn-clear" class="btn small">Clear finished</button>
+            </div>
+          </div>
+          <div id="job-list" class="job-list"></div>
+        </section>
+
+        <section class="card">
+          <div class="section-head">
+            <h3 class="section-title">Browse MEGA</h3>
+            <div class="section-tools">
+              <button id="btn-browser-root" class="btn small" title="Go to /">/</button>
+              <button id="btn-browser-up" class="btn small">↑ Up</button>
+              <button id="btn-browser-refresh" class="btn small">↻ Refresh</button>
+            </div>
+          </div>
+          <div class="browser-path">
+            <span class="muted small">path</span>
+            <input id="browser-path" type="text" value="/" spellcheck="false">
+            <button id="btn-browser-go" class="btn small">Go</button>
+          </div>
+          <div id="browser-loading" class="muted small hidden">loading…</div>
+          <table id="browser-table" class="browser-table">
+            <thead>
+              <tr><th>Name</th><th class="num">Size</th><th>Modified</th><th>Handle</th><th class="right"></th></tr>
+            </thead>
+            <tbody id="browser-rows"></tbody>
+          </table>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- instance add/edit modal -->
+  <div id="modal-instance" class="modal-root hidden">
+    <div class="modal">
+      <div class="modal-head">
+        <h2 id="modal-instance-title">Add instance</h2>
+        <button class="modal-x" data-close>✕</button>
+      </div>
+      <form id="instance-form">
+        <input type="hidden" id="if-id">
+        <div class="grid2">
+          <label><span>Name</span><input id="if-name" type="text" required placeholder="home-vps"></label>
+          <label><span>Type</span>
+            <select id="if-type">
+              <option value="ssh">SSH (remote VPS/server)</option>
+              <option value="local">Local (this machine)</option>
+            </select>
+          </label>
+        </div>
+        <div id="ssh-fields">
+          <div class="grid2">
+            <label><span>Host</span><input id="if-host" type="text" placeholder="1.2.3.4 or host.example.com"></label>
+            <label><span>Port</span><input id="if-port" type="number" value="22" min="1" max="65535"></label>
+          </div>
+          <div class="grid2">
+            <label><span>User</span><input id="if-user" type="text" placeholder="root"></label>
+            <label><span>Auth</span>
+              <select id="if-auth">
+                <option value="password">Password</option>
+                <option value="key">SSH key</option>
+              </select>
+            </label>
+          </div>
+          <div id="auth-password-field">
+            <label><span>Password</span><input id="if-password" type="password" placeholder="leave blank to keep current"></label>
+          </div>
+          <div id="auth-key-fields" class="hidden">
+            <label><span>Private key (paste) or path on this machine</span>
+              <textarea id="if-key" rows="4" placeholder="-----BEGIN OPENSSH PRIVATE KEY----- …&#10;or /path/to/id_ed25519"></textarea>
+            </label>
+            <label><span>Key passphrase</span><input id="if-key-pass" type="password" placeholder="optional"></label>
+          </div>
+        </div>
+        <div class="grid2">
+          <label><span>megacmd command</span><input id="if-megacmd" type="text" placeholder="megacmd"></label>
+          <label><span>Max concurrent downloads</span><input id="if-conc" type="number" value="1" min="1" max="8"></label>
+        </div>
+        <label class="grow"><span>Download directory <em class="muted">(on the instance's machine)</em></span>
+          <input id="if-dest" type="text" placeholder="/root/downloads">
+        </label>
+        <label class="grow"><span>Notes</span><input id="if-notes" type="text" placeholder="optional"></label>
+
+        <div id="test-result" class="test-result hidden"></div>
+
+        <div class="modal-foot">
+          <button type="button" class="btn" id="btn-instance-test">Test connection</button>
+          <span class="spacer"></span>
+          <button type="button" class="btn" data-close>Cancel</button>
+          <button type="submit" class="btn primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- login modal -->
+  <div id="modal-login" class="modal-root hidden">
+    <div class="modal narrow">
+      <div class="modal-head">
+        <h2>MEGA login</h2>
+        <button class="modal-x" data-close>✕</button>
+      </div>
+      <form id="login-form">
+        <p class="muted small">Runs <code>megacmd login</code> on the instance. The session is stored by MEGAcmd on that machine — do this once per server, or reuse an existing session.</p>
+        <label><span>Email or session</span><input id="lg-ident" type="text" required placeholder="user@doma.in"></label>
+        <label><span>Password</span><input id="lg-password" type="password" placeholder="optional if using a session"></label>
+        <label><span>MFA code</span><input id="lg-mfa" type="text" placeholder="optional"></label>
+        <div id="login-result" class="test-result hidden"></div>
+        <div class="modal-foot">
+          <span class="spacer"></span>
+          <button type="button" class="btn" data-close>Close</button>
+          <button type="submit" class="btn primary">Login</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="toasts" class="toasts"></div>
+  <script src="app.js"></script>
+</body>
+</html>

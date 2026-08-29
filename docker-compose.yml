@@ -1,0 +1,23 @@
+# Plain Docker / docker-compose deployment.
+# For Easypanel: use the Dockerfile via a git-source app service (see README).
+services:
+  megacmd-gui:
+    build: .
+    image: megacmd-gui:latest
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - PORT=3000
+      - ACCESS_TOKEN=${ACCESS_TOKEN:-}
+      - TZ=${TZ:-UTC}
+    volumes:
+      - megacmd-gui-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  megacmd-gui-data:
