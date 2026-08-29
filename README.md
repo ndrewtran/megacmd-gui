@@ -20,7 +20,8 @@ remote VPS/dedicated servers reached over **SSH** — with a shared **download q
 - **Instances** — register the machine the GUI runs on (local) and any number of remote
   servers over SSH (password or key auth). Each instance has its own:
   - `megacmd` command path
-  - **download directory** (where transfers land on that machine)
+  - **download directory** (where transfers land on that machine); local instances include
+    an authenticated folder browser so you can select it without typing the path
   - max concurrent transfers (queue parallelism)
 - **Queue** — queue downloads (MEGA link, `H:…` handle, or remote path), reorder, retry,
   cancel, clear finished. Per-instance FIFO with configurable concurrency.
@@ -155,6 +156,7 @@ is set.
 | Method & path                    | Purpose                              |
 | -------------------------------- | ------------------------------------ |
 | `GET /api/state`                 | instances + jobs snapshot            |
+| `GET /api/local/directories?path=/data` | list local subfolders for the picker |
 | `GET/POST /api/instances`        | list / create instance               |
 | `GET/PATCH/DELETE /api/instances/:id` | read / update / remove instance  |
 | `POST /api/instances/:id/test`   | test SSH + MEGA login (`whoami`)     |
@@ -168,5 +170,5 @@ is set.
 | `DELETE /api/jobs/:id`           | remove finished job                  |
 | `POST /api/jobs/clear-completed` | drop finished jobs                   |
 
-WebSocket: connect to `ws://host/?token=*** → `{type:"hello", instances, jobs}`;
-then `{type:"state"|"progress"|"instances"}` pushes.
+WebSocket: connect to `ws://host/?token=YOUR_ACCESS_TOKEN` →
+`{type:"hello", instances, jobs}`; then `{type:"state"|"progress"|"instances"}` pushes.
