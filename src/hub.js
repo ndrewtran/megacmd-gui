@@ -18,6 +18,8 @@ class Hub {
     this.wss = new WebSocketServer({ noServer: true });
 
     server.on('upgrade', (req, socket, head) => {
+      const url = new URL(req.url || '/', 'http://localhost');
+      if (url.pathname === '/agent') return; // handled by the AgentManager
       const token = extractToken(req);
       if (this.accessToken && token !== this.accessToken) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');

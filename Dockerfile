@@ -12,7 +12,7 @@ ENV NODE_ENV=production
 WORKDIR /app
 
 COPY --from=build /app/node_modules ./node_modules
-COPY package.json server.js ./
+COPY package.json server.js agent.js ./
 COPY src ./src
 
 RUN addgroup -S mega && adduser -S mega -G mega \

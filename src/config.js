@@ -8,6 +8,7 @@ function load() {
     port: Number(process.env.PORT || 3000),
     dataDir: process.env.DATA_DIR || path.join(process.cwd(), 'data'),
     accessToken: process.env.ACCESS_TOKEN || '',
+    agentToken: process.env.AGENT_TOKEN || '',
   };
 }
 

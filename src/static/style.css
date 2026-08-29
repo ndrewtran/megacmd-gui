@@ -174,6 +174,17 @@ textarea { font-family: var(--mono); font-size: 12px; resize: vertical; }
 #instance-form label.grow { width: 100%; }
 .path-picker { display: flex; align-items: stretch; gap: 8px; }
 .path-picker input { flex: 1; min-width: 0; }
+.dest-hint { margin: 2px 0 6px; }
+#ssh-fields, #pc-fields { display: flex; flex-direction: column; gap: 10px; margin-bottom: 4px; padding: 12px; border: 1px dashed var(--border); border-radius: 10px; }
+#pc-fields > label { width: 100%; }
+.pc-bridge { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--bg, rgba(255,255,255,0.02)); }
+.pc-bridge-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.pc-cmd-row { display: flex; align-items: stretch; gap: 8px; margin-top: 8px; }
+.pc-cmd {
+  flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap;
+  font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card-2);
+}
 
 .btn {
   background: var(--card-2);

@@ -2,7 +2,6 @@
 
 const http = require('http');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 
 const config = require('./src/config').load();
@@ -10,6 +9,8 @@ const { JsonStore } = require('./src/store');
 const { Hub } = require('./src/hub');
 const { InstanceManager } = require('./src/instances');
 const { QueueManager } = require('./src/queue');
+const { AgentManager } = require('./src/agents');
+const { listLocalDirectories } = require('./src/fsdirs');
 
 // ---------------------------------------------------------------------------
 // wiring
@@ -28,6 +29,8 @@ const hub = new Hub({
 });
 const instances = new InstanceManager({ store: instancesStore, hub });
 const queue = new QueueManager({ store: jobsStore, hub, instances });
+const agents = new AgentManager({ config, hub, instances });
+instances.agents = agents; // bridge for `pc` instances (bound after construction)
 
 // ---------------------------------------------------------------------------
 // HTTP helpers
@@ -89,45 +92,6 @@ function authed(req) {
   return false;
 }
 
-async function listLocalDirectories(requestedPath) {
-  const input = String(requestedPath || os.homedir());
-  if (!path.isAbsolute(input)) throw new Error('Directory path must be absolute');
-
-  let current;
-  try {
-    current = await fs.promises.realpath(path.resolve(input));
-  } catch (err) {
-    throw new Error(`Cannot open directory: ${err.message}`);
-  }
-
-  let dirents;
-  try {
-    dirents = await fs.promises.readdir(current, { withFileTypes: true });
-  } catch (err) {
-    throw new Error(`Cannot read directory: ${err.message}`);
-  }
-
-  const entries = (await Promise.all(dirents.map(async (entry) => {
-    const entryPath = path.join(current, entry.name);
-    if (entry.isDirectory()) return { name: entry.name, path: entryPath };
-    if (!entry.isSymbolicLink()) return null;
-    try {
-      const stat = await fs.promises.stat(entryPath);
-      return stat.isDirectory() ? { name: entry.name, path: entryPath, symlink: true } : null;
-    } catch {
-      return null;
-    }
-  }))).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-
-  const root = path.parse(current).root;
-  return {
-    path: current,
-    root,
-    parent: current === root ? null : path.dirname(current),
-    entries,
-  };
-}
-
 // ---------------------------------------------------------------------------
 // REST API
 // ---------------------------------------------------------------------------
@@ -170,6 +134,18 @@ const routes = [
     const url = new URL(req.url, 'http://localhost');
     return instances.browser(p.id, url.searchParams.get('path') || '/');
   } },
+  { method: 'GET', pattern: /^\/api\/instances\/([^/]+)\/directories$/, run: (_b, p, req) => {
+    const url = new URL(req.url, 'http://localhost');
+    const dirParam = url.searchParams.get('path');
+    return instances.lsDirs(p.id, dirParam === null ? '' : dirParam);
+  } },
+  { method: 'POST', pattern: /^\/api\/instances\/_directories$/, run: (body) => {
+    return instances.lsDirsForForm(body || {}, body?.path ?? '');
+  } },
+  { method: 'GET', pattern: /^\/api\/agents$/, run: () => ({
+    agents: agents.connected(),
+    authRequired: Boolean(config.agentToken || config.accessToken),
+  }) },
 
   { method: 'GET', pattern: /^\/api\/jobs$/, run: () => queue.all() },
   { method: 'POST', pattern: /^\/api\/jobs$/, run: (body) => queue.add(body) },
@@ -259,6 +235,21 @@ const server = http.createServer(async (req, res) => {
       res.end('ok');
       return;
     }
+    if (url.pathname === '/agent.js') {
+      // The PC bridge agent script — users download it from their own
+      // computer (`curl -fsSL <server>/agent.js | node -- …`). No auth:
+      // it contains no secrets; the agent authenticates with a token.
+      fs.readFile(path.join(__dirname, 'agent.js'), (err, data) => {
+        if (err) {
+          res.writeHead(404);
+          res.end('not found');
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'no-cache' });
+        res.end(data);
+      });
+      return;
+    }
     if (!authed(req)) {
       if (url.pathname.startsWith('/api/')) {
         sendJson(res, 401, { error: 'unauthorized', tokenRequired: true });
@@ -280,6 +271,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 hub.attach(server);
+agents.attach(server);
 
 server.listen(config.port, config.host, () => {
   console.log(`MEGAcmd Web listening on http://${config.host}:${config.port}`);
@@ -301,6 +293,7 @@ async function shutdown(signal) {
   console.log(`[server] ${signal} received — shutting down`);
   try { await queue.close(); } catch { /* ignore */ }
   try { await instances.closeAll(); } catch { /* ignore */ }
+  try { agents.close(); } catch { /* ignore */ }
   hub.close();
   instancesStore.close();
   jobsStore.close();

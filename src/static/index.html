@@ -143,7 +143,8 @@
           <label><span>Type</span>
             <select id="if-type">
               <option value="ssh">SSH (remote VPS/server)</option>
-              <option value="local">Local (this machine)</option>
+              <option value="pc">This PC (your computer)</option>
+              <option value="local">Local (this container/host)</option>
             </select>
           </label>
         </div>
@@ -170,16 +171,39 @@
             </label>
             <label><span>Key passphrase</span><input id="if-key-pass" type="password" placeholder="optional"></label>
           </div>
+          <p class="muted small dest-hint" id="ssh-dest-hint" hidden>
+            Enter the host, user and login (or SSH key), then press <b>Test connection</b> — the download
+            destination unlocks after the connection is verified.
+          </p>
+        </div>
+        <div id="pc-fields" class="hidden">
+          <label><span>Agent name <em class="muted">(must match the agent's --name)</em></span>
+            <input id="if-agent-name" type="text" placeholder="This PC">
+          </label>
+          <div class="pc-bridge">
+            <div class="pc-bridge-head">
+              <span class="pill disconnected" id="pc-agent-pill"><span class="dot"></span>checking…</span>
+              <button type="button" class="btn small" id="btn-pc-refresh">↻ Check</button>
+            </div>
+            <p class="muted small">
+              Runs on your computer and connects back to this app, so the GUI can drive that
+              machine's MEGAcmd (and browse its folders). Install once:
+            </p>
+            <div class="pc-cmd-row">
+              <code id="pc-cmd" class="pc-cmd"></code>
+              <button type="button" class="btn small" id="btn-pc-copy" title="Copy command">Copy</button>
+            </div>
+          </div>
         </div>
         <div class="grid2">
           <label><span>megacmd command</span><input id="if-megacmd" type="text" placeholder="megacmd"></label>
           <label><span>Max concurrent downloads</span><input id="if-conc" type="number" value="1" min="1" max="8"></label>
         </div>
-        <div class="field grow">
+        <div id="dest-row" class="field grow">
           <label for="if-dest"><span>Download directory <em class="muted">(on the instance's machine)</em></span></label>
           <div class="path-picker">
             <input id="if-dest" type="text" placeholder="/root/downloads">
-            <button id="btn-local-folder" type="button" class="btn hidden" title="Browse folders on this machine">Browse…</button>
+            <button id="btn-browse-dest" type="button" class="btn hidden" title="Browse folders">Browse…</button>
           </div>
         </div>
         <label class="grow"><span>Notes</span><input id="if-notes" type="text" placeholder="optional"></label>
@@ -201,8 +225,8 @@
     <div class="modal folder-modal">
       <div class="modal-head">
         <div>
-          <h2>Select download folder</h2>
-          <p class="muted small">Folders on the machine running megacmd-gui.</p>
+          <h2 id="folder-title">Select download folder</h2>
+          <p class="muted small" id="folder-subtitle">Folders on the machine running megacmd-gui.</p>
         </div>
         <button class="modal-x" data-close>✕</button>
       </div>
