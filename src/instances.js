@@ -6,6 +6,8 @@ const path = require('path');
 const crypto = require('crypto');
 const { Client } = require('ssh2');
 const { runLocal, runRemote } = require('./exec');
+const { listLocalDirectories } = require('./fsdirs');
+const { buildLsDirsCommand, parseLsDirsOutput } = require('./agents');
 
 const ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
@@ -225,15 +227,35 @@ class SshManager {
   invalidateConfig() {
     this.close();
   }
+
+  /** Run a raw shell command (not megacmd) on the connected host, capture output. */
+  shellCapture(cmd) {
+    return this.ensure().then((conn) => new Promise((resolve, reject) => {
+      let output = '';
+      conn.exec(cmd, { pty: false, term: 'xterm', env: ['LANG=en_US.UTF-8'] }, (err, stream) => {
+        if (err) return reject(new Error(err.message));
+        const onChunk = (buf) => { output += buf.toString('utf8'); };
+        stream.on('data', onChunk);
+        stream.stderr.on('data', onChunk);
+        stream.on('close', (code) => {
+          const trimmed = output.trim();
+          if (code === 0) resolve(output);
+          else reject(new Error(trimmed || `shell command exited with code ${code}`));
+        });
+        stream.on('error', (e) => reject(new Error(e.message)));
+      });
+    }));
+  }
 }
 
 /**
  * Registry of MEGAcmd instances (local machine or remote hosts over SSH).
  */
 class InstanceManager {
-  constructor({ store, hub }) {
+  constructor({ store, hub, agents = null }) {
     this.store = store;
     this.hub = hub;
+    this.agents = agents; // AgentManager, bound after construction
     this._dataDir = path.dirname(store.file);
     this.instances = new Map();
     this._loadFromStore();
@@ -341,6 +363,10 @@ class InstanceManager {
       this._setStatus(instanceId, 'online', null);
       return runLocal(inst.megacmdPath || 'megacmd', args, handlers);
     }
+    if (inst.type === 'pc') {
+      if (!this.agents) throw new Error('Agent bridge is not configured');
+      return this.agents.execFor(inst, args, handlers);
+    }
     return inst._ssh.exec(args, handlers);
   }
 
@@ -349,6 +375,22 @@ class InstanceManager {
       return new Promise((resolve, reject) => {
         let output = '';
         runLocal(inst.megacmdPath || 'megacmd', args, {
+          onProgress() {},
+          onLine: (line) => { output += `${line}\n`; },
+          onExit: ({ code, signal, error }) => {
+            if (error) reject(new Error(error));
+            else if (signal) reject(new Error(`process killed (${signal})`));
+            else if (code !== 0) reject(new Error(output.trim() || `exited with code ${code}`));
+            else resolve(output);
+          },
+        });
+      });
+    }
+    if (inst.type === 'pc') {
+      if (!this.agents) throw new Error('Agent bridge is not configured');
+      return new Promise((resolve, reject) => {
+        let output = '';
+        this.agents.execFor(inst, args, {
           onProgress() {},
           onLine: (line) => { output += `${line}\n`; },
           onExit: ({ code, signal, error }) => {
@@ -386,6 +428,17 @@ class InstanceManager {
         });
       });
       return { ok: /e-mail/i.test(out), output: out.trim(), megaUser: parseWhoami(out) };
+    }
+
+    if (cfg.type === 'pc') {
+      if (!this.agents) return { ok: false, output: 'Agent bridge is not configured', megaUser: null };
+      const fake = { id: '_test', ...cfg, status: 'disconnected', error: null };
+      try {
+        const out = await this.agents.captureFor(fake, ['whoami']);
+        return { ok: /e-mail/i.test(out), output: out.trim(), megaUser: parseWhoami(out) };
+      } catch (err) {
+        return { ok: false, output: err.message, megaUser: null };
+      }
     }
 
     const fake = { id: '_test', ...cfg, status: 'disconnected', error: null };
@@ -455,6 +508,66 @@ class InstanceManager {
     }
   }
 
+  /** Set status/error for an instance (used by the agent bridge). */
+  setAgentStatus(instanceId, status, error) {
+    this._setStatus(instanceId, status, error);
+  }
+
+  /**
+   * List the immediate subfolders of a local/remote directory on the
+   * instance's machine. Used by the download-folder browser.
+   * Returns { path, parent, entries: [{ name, path, symlink? }] }.
+   */
+  async lsDirs(instanceId, dir) {
+    const inst = this.instances.get(instanceId);
+    if (!inst) throw new Error('Instance not found');
+
+    if (inst.type === 'local') {
+      return listLocalDirectories(dir);
+    }
+
+    if (inst.type === 'pc') {
+      if (!this.agents) throw new Error('Agent bridge is not configured');
+      return this.agents.lsDirsFor(inst, dir);
+    }
+
+    // ssh
+    const out = await inst._ssh.shellCapture(buildLsDirsCommand(dir));
+    return parseLsDirsOutput(out);
+  }
+
+  /**
+   * List directories for a not-yet-saved instance (the add dialog).
+   * `formFields` are raw form values (same shape as add); `dir` is the
+   * requested directory.
+   */
+  lsDirsForForm(formFields, dir) {
+    const cfg = normalizeConfig(formFields, '_ls');
+    return this.lsDirsForConfig(cfg, dir);
+  }
+
+  /**
+   * List directories for a not-yet-saved instance (the add dialog).
+   * `cfg` is the normalized form config; `overrides` may carry ssh creds.
+   */
+  async lsDirsForConfig(cfg, dir) {
+    if (cfg.type === 'local') return listLocalDirectories(dir);
+    if (cfg.type === 'pc') {
+      if (!this.agents) throw new Error('Agent bridge is not configured');
+      const fake = { id: '_test', ...cfg, status: 'disconnected', error: null };
+      return this.agents.lsDirsFor(fake, dir);
+    }
+    // ssh — open a throwaway connection
+    const fake = { id: '_ls', ...cfg, status: 'disconnected', error: null };
+    const mgr = new SshManager(fake, () => undefined, this._dataDir);
+    try {
+      const out = await mgr.shellCapture(buildLsDirsCommand(dir));
+      return parseLsDirsOutput(out);
+    } finally {
+      mgr.close();
+    }
+  }
+
   /** ls -l --show-handles for the browser view */
   async browser(instanceId, remotePath) {
     const inst = this.instances.get(instanceId);
@@ -484,6 +597,7 @@ function effectiveConfig(stored, overrides) {
   const out = { ...base };
   if (o.name !== undefined) out.name = o.name;
   if (o.type !== undefined) out.type = o.type;
+  if (o.agentName !== undefined) out.agentName = o.agentName;
   if (o.megacmdPath !== undefined) out.megacmdPath = o.megacmdPath;
   if (o.downloadDir !== undefined) out.downloadDir = o.downloadDir;
   if (o.maxConcurrent !== undefined) out.maxConcurrent = o.maxConcurrent;
@@ -501,11 +615,12 @@ function effectiveConfig(stored, overrides) {
 }
 
 function normalizeConfig(cfg, id) {
-  const type = cfg.type === 'ssh' ? 'ssh' : 'local';
+  const type = cfg.type === 'ssh' ? 'ssh' : cfg.type === 'pc' ? 'pc' : 'local';
   return {
     id,
     name: String(cfg.name || 'unnamed').slice(0, 60),
     type,
+    agentName: type === 'pc' ? String(cfg.agentName || cfg.name || 'This PC').slice(0, 60) : null,
     ssh: type === 'ssh'
       ? {
         host: String(cfg.ssh?.host || '').trim(),
@@ -518,8 +633,8 @@ function normalizeConfig(cfg, id) {
         keyPassphrase: cfg.ssh?.keyPassphrase || '',
       }
       : null,
-    megacmdPath: String(cfg.megacmdPath || (type === 'local' ? guessLocalBin() : 'megacmd')).slice(0, 200),
-    downloadDir: String(cfg.downloadDir || (type === 'local' ? os.homedir() : '/root/downloads')).slice(0, 500),
+    megacmdPath: String(cfg.megacmdPath || (type === 'ssh' ? 'megacmd' : guessLocalBin())).slice(0, 200),
+    downloadDir: String(cfg.downloadDir || (type === 'ssh' ? '/root/downloads' : os.homedir())).slice(0, 500),
     maxConcurrent: Math.max(1, Math.min(8, Number(cfg.maxConcurrent || 1) || 1)),
     notes: String(cfg.notes || '').slice(0, 500),
     megaUser: cfg.megaUser || null,
@@ -546,6 +661,7 @@ function sanitize(inst) {
     id: inst.id,
     name: inst.name,
     type: inst.type,
+    agentName: inst.agentName || null,
     ssh: inst.ssh
       ? { ...inst.ssh, password: inst.ssh.password ? '••••••' : '', keyData: inst.ssh.keyData ? '••••••' : '' }
       : null,

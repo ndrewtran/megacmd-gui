@@ -14,7 +14,6 @@ const state = {
   queue: {},
   activeId: null,
   browser: { path: '/', entries: [] },
-  localBrowser: { path: '/', root: '/', parent: null, entries: [] },
   ws: null,
   wsRetry: 0,
 };
@@ -186,7 +185,10 @@ function renderInstances() {
   for (const inst of state.instances) {
     const el = document.createElement('div');
     el.className = `inst-item ${inst.id === state.activeId ? 'active' : ''}`;
-    const sub = inst.type === 'ssh' ? `${inst.ssh?.host || ''}${inst.ssh?.port && inst.ssh.port !== 22 ? `:${inst.ssh.port}` : ''}` : 'this machine';
+    const sub = inst.type === 'ssh'
+      ? `${inst.ssh?.host || ''}${inst.ssh?.port && inst.ssh.port !== 22 ? `:${inst.ssh.port}` : ''}`
+      : inst.type === 'pc' ? (inst.agentName || 'your computer')
+        : 'this container';
     el.innerHTML = `
       <span class="pill ${inst.status || 'disconnected'}" style="pointer-events:none"><span class="dot"></span></span>
       <span class="name">${esc(inst.name)}</span>
@@ -213,6 +215,7 @@ function renderHeader() {
   pill.innerHTML = `<span class="dot"></span>${esc(inst.status || 'offline')}`;
   const bits = [];
   if (inst.type === 'ssh') bits.push(`${inst.ssh?.user}@${inst.ssh?.host}`);
+  if (inst.type === 'pc') bits.push(`agent: ${inst.agentName || 'your computer'}`);
   if (inst.megaUser) bits.push(`MEGA: ${inst.megaUser}`);
   bits.push(`downloads → ${inst.downloadDir}`);
   bits.push(`concurrency ${inst.maxConcurrent}`);
@@ -499,7 +502,29 @@ $('#login-form').addEventListener('submit', async (e) => {
 
 /* ------------------------------ instance modal ------------------------------ */
 
+const modalCtx = { verified: false };
+
+function pcAgentCommand(name) {
+  const token = localStorage.getItem('meganet.token') || '<access-token>';
+  return `curl -fsSL ${location.origin}/agent.js | node -- --server ${location.origin} --name "${name || 'This PC'}" --token ${token}`;
+}
+
+async function refreshPcAgentPill() {
+  const name = $('#if-agent-name').value.trim() || 'This PC';
+  const pill = $('#pc-agent-pill');
+  try {
+    const res = await api('/api/agents');
+    const match = (res.agents || []).find((a) => a.name === name);
+    pill.className = `pill ${match ? 'online' : 'disconnected'}`;
+    pill.innerHTML = `<span class="dot"></span>${match ? 'agent connected' : 'agent offline'}`;
+  } catch {
+    pill.className = 'pill disconnected';
+    pill.innerHTML = '<span class="dot"></span>unknown';
+  }
+}
+
 function openInstanceModal(inst = null) {
+  modalCtx.verified = false;
   $('#modal-instance-title').textContent = inst ? `Edit — ${inst.name}` : 'Add instance';
   $('#if-id').value = inst?.id || '';
   $('#if-name').value = inst?.name || '';
@@ -513,11 +538,16 @@ function openInstanceModal(inst = null) {
   $('#if-key').value = '';
   $('#if-key').placeholder = inst?.ssh?.authType === 'key' ? 'leave blank to keep current key' : '-----BEGIN OPENSSH PRIVATE KEY-----';
   $('#if-key-pass').value = '';
-  $('#if-megacmd').value = inst?.megacmdPath || (inst?.type === 'local' ? '' : 'megacmd');
+  $('#if-agent-name').value = inst?.agentName || (inst?.type === 'pc' ? inst.name : '');
+  $('#if-megacmd').value = inst?.megacmdPath || (inst?.type === 'ssh' ? 'megacmd' : '');
   $('#if-conc').value = inst?.maxConcurrent || 1;
-  $('#if-dest').value = inst?.downloadDir || (inst?.type === 'local' ? '' : '/root/downloads');
+  $('#if-dest').value = inst?.downloadDir || (inst?.type === 'ssh' ? '/root/downloads' : '');
   $('#if-notes').value = inst?.notes || '';
   $('#test-result').classList.add('hidden');
+  if ($('#if-type').value === 'pc') {
+    $('#pc-cmd').textContent = pcAgentCommand($('#if-agent-name').value);
+    refreshPcAgentPill();
+  }
   syncInstanceForm();
   $('#modal-instance').classList.remove('hidden');
 }
@@ -525,14 +555,47 @@ function openInstanceModal(inst = null) {
 function syncInstanceForm() {
   const type = $('#if-type').value;
   $('#ssh-fields').classList.toggle('hidden', type !== 'ssh');
-  $('#btn-local-folder').classList.toggle('hidden', type !== 'local');
+  $('#pc-fields').classList.toggle('hidden', type !== 'pc');
   const auth = $('#if-auth').value;
   $('#auth-password-field').classList.toggle('hidden', auth !== 'password');
   $('#auth-key-fields').classList.toggle('hidden', auth !== 'key');
+
+  // SSH: the download destination only appears once the connection is
+  // verified (or the instance already has one).
+  const hasDest = Boolean($('#if-dest').value.trim());
+  const destUnlocked = type !== 'ssh' || hasDest || modalCtx.verified;
+  $('#dest-row').classList.toggle('hidden', !destUnlocked);
+  $('#ssh-dest-hint').hidden = destUnlocked;
+  $('#btn-browse-dest').classList.toggle('hidden', !destUnlocked);
 }
 
-function renderLocalFolders() {
-  const browser = state.localBrowser;
+/* ------------------------------ download-folder picker ------------------------------ */
+
+const fsPicker = {
+  kind: 'local', // 'local' | 'instance' | 'form'
+  id: null,
+  body: null,
+  target: 'this machine',
+  browser: { path: '/', root: '/', parent: null, entries: [] },
+  reqSeq: 0,
+};
+
+async function fetchFsList(dir) {
+  if (fsPicker.kind === 'instance') {
+    const q = dir ? `?path=${encodeURIComponent(dir)}` : '';
+    return api(`/api/instances/${fsPicker.id}/directories${q}`);
+  }
+  if (fsPicker.kind === 'form') {
+    const body = { ...fsPicker.body };
+    if (dir) body.path = dir;
+    return api('/api/instances/_directories', 'POST', body);
+  }
+  const q = dir ? `?path=${encodeURIComponent(dir)}` : '';
+  return api(`/api/local/directories${q}`);
+}
+
+function renderFsFolders() {
+  const browser = fsPicker.browser;
   $('#folder-path').value = browser.path;
   $('#folder-selection').textContent = browser.path;
   $('#btn-folder-up').disabled = !browser.parent;
@@ -566,30 +629,25 @@ function renderLocalFolders() {
       badge.textContent = 'link';
       button.appendChild(badge);
     }
-    button.addEventListener('click', () => loadLocalFolders(entry.path));
+    button.addEventListener('click', () => loadFsFolders(entry.path));
     list.appendChild(button);
   }
 }
 
-let localFolderRequest = 0;
-
-async function loadLocalFolders(requestedPath, { quiet = false } = {}) {
-  const requestId = ++localFolderRequest;
+async function loadFsFolders(requestedPath, { quiet = false } = {}) {
+  const requestId = ++fsPicker.reqSeq;
   $('#folder-loading').classList.remove('hidden');
   $('#folder-error').classList.add('hidden');
   $('#btn-folder-select').disabled = true;
   try {
-    const query = new URLSearchParams();
-    if (requestedPath) query.set('path', requestedPath);
-    const encoded = query.toString();
-    const result = await api(`/api/local/directories${encoded ? `?${encoded}` : ''}`);
-    if (requestId !== localFolderRequest) return true;
-    state.localBrowser = result;
-    renderLocalFolders();
+    const result = await fetchFsList(requestedPath || null);
+    if (requestId !== fsPicker.reqSeq) return true;
+    fsPicker.browser = result;
+    renderFsFolders();
     $('#btn-folder-select').disabled = false;
     return true;
   } catch (err) {
-    if (requestId !== localFolderRequest) return true;
+    if (requestId !== fsPicker.reqSeq) return true;
     if (!quiet) {
       const box = $('#folder-error');
       box.textContent = err.message;
@@ -597,40 +655,82 @@ async function loadLocalFolders(requestedPath, { quiet = false } = {}) {
     }
     return false;
   } finally {
-    if (requestId === localFolderRequest) $('#folder-loading').classList.add('hidden');
+    if (requestId === fsPicker.reqSeq) $('#folder-loading').classList.add('hidden');
   }
 }
 
-async function openLocalFolderPicker() {
+async function openFolderPicker() {
+  const type = $('#if-type').value;
+  const instId = $('#if-id').value;
+  const destVal = $('#if-dest').value.trim();
+  if (type === 'pc') {
+    fsPicker.kind = instId ? 'instance' : 'form';
+    fsPicker.id = instId || null;
+    fsPicker.body = collectInstanceForm();
+    fsPicker.target = `your computer (“${$('#if-agent-name').value.trim() || 'This PC'}”)`;
+  } else if (type === 'ssh') {
+    if (!instId && !modalCtx.verified) return;
+    fsPicker.kind = instId ? 'instance' : 'form';
+    fsPicker.id = instId || null;
+    fsPicker.body = collectInstanceForm();
+    fsPicker.target = instId ? 'the server' : `the server (${($('#if-host').value.trim() || 'host')})`;
+  } else {
+    fsPicker.kind = 'local';
+    fsPicker.id = null;
+    fsPicker.body = null;
+    fsPicker.target = 'the machine running megacmd-gui';
+  }
+  $('#folder-subtitle').textContent = `Folders on ${fsPicker.target}.`;
   $('#modal-local-folder').classList.remove('hidden');
-  const preferred = $('#if-dest').value.trim() || null;
-  const candidates = [...new Set([preferred, '/data', null, '/'])];
+  // Try: current value → /data → filesystem root → the user's home
+  const candidates = [...new Set([destVal || null, '/data', '/', null])];
   for (let i = 0; i < candidates.length; i += 1) {
-    if (await loadLocalFolders(candidates[i], { quiet: i < candidates.length - 1 })) return;
+    if (await loadFsFolders(candidates[i], { quiet: i < candidates.length - 1 })) return;
   }
 }
 
-$('#btn-local-folder').addEventListener('click', openLocalFolderPicker);
+$('#btn-browse-dest').addEventListener('click', openFolderPicker);
 $('#btn-folder-up').addEventListener('click', () => {
-  if (state.localBrowser.parent) loadLocalFolders(state.localBrowser.parent);
+  if (fsPicker.browser.parent) loadFsFolders(fsPicker.browser.parent);
 });
-$('#btn-folder-root').addEventListener('click', () => loadLocalFolders(state.localBrowser.root || '/'));
-$('#btn-folder-refresh').addEventListener('click', () => loadLocalFolders(state.localBrowser.path));
-$('#btn-folder-go').addEventListener('click', () => loadLocalFolders($('#folder-path').value.trim()));
+$('#btn-folder-root').addEventListener('click', () => loadFsFolders(fsPicker.browser.root || '/'));
+$('#btn-folder-refresh').addEventListener('click', () => loadFsFolders(fsPicker.browser.path));
+$('#btn-folder-go').addEventListener('click', () => loadFsFolders($('#folder-path').value.trim()));
 $('#folder-path').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     e.preventDefault();
-    loadLocalFolders(e.currentTarget.value.trim());
+    loadFsFolders(e.currentTarget.value.trim());
   }
 });
 $('#btn-folder-select').addEventListener('click', () => {
-  $('#if-dest').value = state.localBrowser.path;
+  $('#if-dest').value = fsPicker.browser.path;
+  modalCtx.verified = true;
   $('#modal-local-folder').classList.add('hidden');
+  syncInstanceForm();
   $('#if-dest').focus();
 });
 
-$('#if-type').addEventListener('change', syncInstanceForm);
+$('#if-type').addEventListener('change', () => {
+  modalCtx.verified = false;
+  syncInstanceForm();
+  if ($('#if-type').value === 'pc') {
+    $('#pc-cmd').textContent = pcAgentCommand($('#if-agent-name').value);
+    refreshPcAgentPill();
+  }
+});
 $('#if-auth').addEventListener('change', syncInstanceForm);
+$('#if-agent-name').addEventListener('input', () => {
+  $('#pc-cmd').textContent = pcAgentCommand($('#if-agent-name').value);
+});
+$('#btn-pc-refresh').addEventListener('click', refreshPcAgentPill);
+$('#btn-pc-copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('#pc-cmd').textContent);
+    toast('Agent command copied', 'ok');
+  } catch {
+    toast('Copy failed — select the command text manually', 'err');
+  }
+});
 
 $('#btn-add-instance').addEventListener('click', () => openInstanceModal(null));
 $('#btn-edit').addEventListener('click', () => openInstanceModal(activeInstance()));
@@ -645,6 +745,9 @@ function collectInstanceForm() {
     downloadDir: $('#if-dest').value.trim(),
     notes: $('#if-notes').value.trim(),
   };
+  if (type === 'pc') {
+    body.agentName = $('#if-agent-name').value.trim() || body.name || 'This PC';
+  }
   if (type === 'ssh') {
     const auth = $('#if-auth').value;
     body.ssh = {
@@ -682,6 +785,11 @@ $('#btn-instance-test').addEventListener('click', async () => {
     box.textContent = res.ok
       ? `✔ Connection OK${res.megaUser ? `\nMEGA account: ${res.megaUser}` : '\nNot logged into MEGA yet — use Login after saving.'}`
       : `✘ ${res.output}`;
+    if (res.ok && $('#if-type').value === 'ssh') {
+      modalCtx.verified = true;
+      syncInstanceForm(); // unlock the download destination + Browse
+      toast('Connection verified — download destination unlocked', 'ok');
+    }
   } catch (err) {
     box.classList.add('err');
     box.textContent = `✘ ${err.message}`;

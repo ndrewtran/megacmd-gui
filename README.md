@@ -12,16 +12,27 @@ remote VPS/dedicated servers reached over **SSH** — with a shared **download q
 │            │ ───────▶ │ VPS #2       │ megacmd get …  → /downloads
 │            │  local   │ …and more    │
 │            │ ───────▶ │ this machine │ megacmd get …  → ~/downloads
-└────────────┘
+│            │◀─ WS ─── │ your PC      │ megacmd get …  → ~/Downloads
+└────────────┘  (agent) (bridge agent)
 ```
+
+Instance types:
+
+- **SSH** — a remote machine reached over SSH (password or key auth).
+- **This PC** — your own computer, driven through a tiny zero-dependency **bridge agent**
+  (`agent.js`) that runs locally and connects back to the app over WebSocket.
+- **Local** — the machine the GUI itself runs on (in Docker: the container).
 
 ## Features
 
-- **Instances** — register the machine the GUI runs on (local) and any number of remote
-  servers over SSH (password or key auth). Each instance has its own:
+- **Instances** — register the machine the GUI runs on (local), any number of remote
+  servers over SSH (password or key auth), and **your own computer** via the "This PC"
+  bridge agent. Each instance has its own:
   - `megacmd` command path
-  - **download directory** (where transfers land on that machine); local instances include
-    an authenticated folder browser so you can select it without typing the path
+  - **download directory** (where transfers land on that machine), with a **folder
+    browser** to pick the path without typing it. For SSH instances the field is locked
+    until "Test connection" succeeds, then Browse walks the remote filesystem over the
+    verified channel; for This PC / Local it lists that machine's folders.
   - max concurrent transfers (queue parallelism)
 - **Queue** — queue downloads (MEGA link, `H:…` handle, or remote path), reorder, retry,
   cancel, clear finished. Per-instance FIFO with configurable concurrency.
@@ -49,10 +60,12 @@ Environment:
 | `HOST`          | `0.0.0.0`| Bind address                                       |
 | `DATA_DIR`      | `./data` | State dir (instances + queue JSON files)           |
 | `ACCESS_TOKEN`  | *(empty)*| If set, API + WebSocket require this token         |
+| `AGENT_TOKEN`   | *(empty)*| If set, bridge agents must present *this* token (instead of `ACCESS_TOKEN`) to connect |
 
-Add an **SSH instance**: host, port, user, password *or* pasted private key, the path to the
-`megacmd` binary on the remote box, and the remote download directory. Test the connection
-from the form before saving.
+Add an **SSH instance**: host, port, user, password *or* pasted private key. The download
+directory field stays **locked until "Test connection" succeeds** — after that you can type
+the remote path or **Browse…** the remote filesystem. The `megacmd` binary path on the
+remote box is set in the same form.
 
 For a **local instance**, set the `megacmd` command path of *this* machine
 (on macOS the MEGAcmd app ships `mega-exec`, e.g.
@@ -65,11 +78,47 @@ button in the GUI (runs `megacmd login <email> <password> [--auth-code=…]` ove
 MEGAcmd stores the session in `~/.megaCmd` on that machine; this app never stores MEGA
 credentials itself.
 
+## "This PC" — drive your own computer
+
+Use this when the GUI runs in a container/VPS but you want to queue downloads onto **your
+own machine** (its MEGAcmd session, its disk) without exposing that machine to SSH. A tiny
+zero-dependency **bridge agent** runs on your computer and dials the GUI over WebSocket.
+
+**1. Start the agent on your computer** (needs Node.js ≥ 22 — it uses the built-in
+`WebSocket`, no `npm install`). Grab the script from the running app and pipe it to node:
+
+```bash
+curl -fsSL http://<panel-host>:3010/agent.js | node -- \
+  --server http://<panel-host>:3010 \
+  --token <ACCESS_TOKEN> \
+  --name "My Mac" \
+  --megacmd /Applications/MEGAcmd.app/Contents/MacOS/mega-exec
+```
+
+The instance form (type **This PC**) shows this exact one-liner with your server URL and a
+**Copy** button, plus a live *agent online/offline* pill. The `--name` is the link key: the
+first time an agent with a given name connects, the app **auto-creates** the instance for
+it (megacmd path + download dir come from the agent's hello), so you can also just start
+the agent and watch the instance appear.
+
+**2. Use the instance** — type **This PC**, enter the agent name (must match `--name`), and
+pick a download folder with **Browse…** (lists that computer's filesystem through the
+agent). *Test connection* runs `whoami` on that machine.
+
+**What the agent may execute** (this is the entire surface, by design):
+- the configured `megacmd` binary with the arguments the server queues, and
+- one fixed, read-only folder-listing command (a `cd` + `[ -d ]` loop).
+
+The agent authenticates with the GUI access token (or `AGENT_TOKEN` if set) and writes
+nothing to disk. Stop it with Ctrl-C; it reconnects with backoff if the network drops, and
+the instance shows `disconnected` whenever the agent is offline.
+
 ## How it works
 
 - **Execution** — local instances run the binary directly; SSH instances reuse one
   persistent `ssh2` connection per instance (`keepalive` every 15 s; dropped connections
-  reconnect lazily). Commands are shell-quoted.
+  reconnect lazily); **This PC** instances run through the bridge agent over WebSocket.
+  Commands are shell-quoted.
 - **Progress protocol** — when stdout is piped (never a TTY), MEGAcmd writes transfer
   updates as `TRANSFERRING ||<bar>||(<done>/<total> <unit>: <pct> %)` separated by NUL
   bytes, ending with `Download finished: <path>`. The server splits on NUL/newline, parses
@@ -145,8 +194,9 @@ root. This path *does* require the panel's Settings → Git SSH key to be config
 
 > Note: an instance whose *type is local* refers to the machine the GUI itself runs on —
 > inside the Easypanel container that means the container (no MEGAcmd there). For the
-> Easypanel deployment, add your machines as **SSH instances**, including your own Mac if
-> it is reachable over SSH (point its *megacmd command* at the app's `mega-exec` path).
+> Easypanel deployment, add your machines as **SSH instances** or, better, use **"This PC"**
+> with the bridge agent to drive your own computer (its MEGAcmd, its disk) without exposing
+> it to SSH.
 
 ## REST API (overview)
 
@@ -157,6 +207,10 @@ is set.
 | -------------------------------- | ------------------------------------ |
 | `GET /api/state`                 | instances + jobs snapshot            |
 | `GET /api/local/directories?path=/data` | list local subfolders for the picker |
+| `GET /api/instances/:id/directories?path=/` | list subfolders on that instance's machine (local fs / SSH / agent) |
+| `POST /api/instances/_directories` | list subfolders for a not-yet-saved form (`{…instance fields, path}`) |
+| `GET /api/agents` | currently connected bridge agents (name, platform, megacmd) |
+| `GET /agent.js` | the bridge agent script (download it onto your computer) |
 | `GET/POST /api/instances`        | list / create instance               |
 | `GET/PATCH/DELETE /api/instances/:id` | read / update / remove instance  |
 | `POST /api/instances/:id/test`   | test SSH + MEGA login (`whoami`)     |
