@@ -188,6 +188,16 @@ is needed**. One catch: the archive download is anonymous — the repo must be *
    triggers the first build + start automatically; later deploys build when the commit
    changes (a same-commit deploy is a fast no-op). The first build takes a few minutes.
 
+    ⚠️ **Gotchas observed on a real panel:**
+    - A same-commit or fresh `deployService` can build a new image but the *running*
+      container may keep the old one. If the UI doesn't change, `destroyService` +
+      `createService` forces a fresh container.
+    - `destroyService` **deletes the service's named volume** (`/data` state). Back up
+      `data/instances.json` + `data/jobs.json` first if you have state you care about;
+      a recreate starts from an empty volume.
+    - Recreating the service also **detaches any domain** — re-add the domain
+      (Settings → Domains) afterwards.
+
 Result: `http://<panel-host>:3010` — enter the access token on the login screen.
 
 **Alternative — generic git source (Forgejo / self-hosted, SSH):** point the source at a
