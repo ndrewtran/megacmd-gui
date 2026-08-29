@@ -110,30 +110,31 @@ or `ACCESS_TOKEN=change-me docker compose up -d --build`.
 
 State lives in `/data`; the container is non-root and has a `/healthz` healthcheck.
 
-### Deploying on Easypanel (custom Docker / git source)
+### Deploying on Easypanel (GitHub source — recommended)
 
-The pattern used for the `clawmagic` service on this panel — a git-source app service
-built from the repo's `Dockerfile`:
+Easypanel supports a first-class **GitHub** git source, which clones using the panel's
+existing GitHub integration — so **no panel-side git SSH key is needed** and private
+repos work:
 
-1. **Push this repo** to your Forgejo, e.g. `ssh://git@ssh.git.omelette.co:222/<org>/megacmd-gui.git`
-   (the `Dockerfile` at the repo root is all Easypanel needs).
-2. In Easypanel, **Create project** → name it `megacmd-gui` (or add a service to an
-   existing project, e.g. `utilities`).
-3. Service type **Custom Docker / Dockerfile**:
-   - Source: your git repo, branch `main`, path `/`
+1. Push this repo to GitHub, e.g. `https://github.com/<owner>/megacmd-gui` (private is fine).
+2. In Easypanel: **Create project** → name it `megacmd-gui`, then add an **app** service:
+   - Source: **GitHub** — owner `<owner>`, repo `megacmd-gui`, branch `main`, path `/`
    - Build file: `Dockerfile`
-4. **Environment**:
+3. **Environment**:
    - `PORT=3000`
    - `ACCESS_TOKEN=<random-secret>` *(generate: `openssl rand -hex 16`)*
    - `TZ=UTC` (or your zone)
-5. **Volumes**: add a named volume mounted at `/data` (state).
-6. **Ports**: publish `3000` (target `3000`, tcp).
-7. **Domain** (optional): point a domain at the service with destination port `3000`,
-   protocol `http` (the app listens plain-http; put TLS termination at Traefik).
-8. Deploy, then open `http://<panel-host>:3000` (or your domain) and enter the token.
+4. **Volumes**: named volume at `/data` (state).
+5. **Ports**: publish `3000` (target `3000`, tcp).
+6. **Domain** (optional): destination port `3000`, protocol `http` (TLS termination at Traefik).
+7. **Deploy** — use the **Deploy button in the UI**. Note: the `deployService` RPC only
+   syncs the git commit; the Dockerfile build + container start is driven by the UI
+   deploy flow. The first deployment builds the image on the panel (a few minutes) —
+   watch the service logs until it prints `MEGAcmd Web listening on http://0.0.0.0:3000`.
 
-The first deployment triggers an image build on the panel — watch the service logs until it
-prints `MEGAcmd Web listening on http://0.0.0.0:3000`.
+**Alternative — generic git source (Forgejo / self-hosted, SSH):** point the source at a
+`ssh://git@<git-host>:<port>/<owner>/megacmd-gui.git` repo with the `Dockerfile` at its
+root. This path *does* require the panel's Settings → Git SSH key to be configured once.
 
 > Note: an instance whose *type is local* refers to the machine the GUI itself runs on —
 > inside the Easypanel container that means the container (no MEGAcmd there). For the
