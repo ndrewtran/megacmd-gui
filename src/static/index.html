@@ -175,9 +175,13 @@
           <label><span>megacmd command</span><input id="if-megacmd" type="text" placeholder="megacmd"></label>
           <label><span>Max concurrent downloads</span><input id="if-conc" type="number" value="1" min="1" max="8"></label>
         </div>
-        <label class="grow"><span>Download directory <em class="muted">(on the instance's machine)</em></span>
-          <input id="if-dest" type="text" placeholder="/root/downloads">
-        </label>
+        <div class="field grow">
+          <label for="if-dest"><span>Download directory <em class="muted">(on the instance's machine)</em></span></label>
+          <div class="path-picker">
+            <input id="if-dest" type="text" placeholder="/root/downloads">
+            <button id="btn-local-folder" type="button" class="btn hidden" title="Browse folders on this machine">Browse…</button>
+          </div>
+        </div>
         <label class="grow"><span>Notes</span><input id="if-notes" type="text" placeholder="optional"></label>
 
         <div id="test-result" class="test-result hidden"></div>
@@ -189,6 +193,35 @@
           <button type="submit" class="btn primary">Save</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- local folder picker modal -->
+  <div id="modal-local-folder" class="modal-root hidden">
+    <div class="modal folder-modal">
+      <div class="modal-head">
+        <div>
+          <h2>Select download folder</h2>
+          <p class="muted small">Folders on the machine running megacmd-gui.</p>
+        </div>
+        <button class="modal-x" data-close>✕</button>
+      </div>
+      <div class="folder-toolbar">
+        <button id="btn-folder-root" type="button" class="btn small" title="Filesystem root">/</button>
+        <button id="btn-folder-up" type="button" class="btn small">↑ Up</button>
+        <input id="folder-path" type="text" spellcheck="false" aria-label="Current folder path">
+        <button id="btn-folder-go" type="button" class="btn small">Go</button>
+        <button id="btn-folder-refresh" type="button" class="btn small" title="Refresh">↻</button>
+      </div>
+      <div id="folder-loading" class="muted small hidden">Loading folders…</div>
+      <div id="folder-error" class="test-result err hidden"></div>
+      <div id="folder-list" class="folder-list" aria-label="Folders"></div>
+      <div class="modal-foot">
+        <span id="folder-selection" class="muted small folder-selection"></span>
+        <span class="spacer"></span>
+        <button type="button" class="btn" data-close>Cancel</button>
+        <button id="btn-folder-select" type="button" class="btn primary">Use this folder</button>
+      </div>
     </div>
   </div>
 

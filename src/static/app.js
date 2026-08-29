@@ -14,6 +14,7 @@ const state = {
   queue: {},
   activeId: null,
   browser: { path: '/', entries: [] },
+  localBrowser: { path: '/', root: '/', parent: null, entries: [] },
   ws: null,
   wsRetry: 0,
 };
@@ -524,10 +525,109 @@ function openInstanceModal(inst = null) {
 function syncInstanceForm() {
   const type = $('#if-type').value;
   $('#ssh-fields').classList.toggle('hidden', type !== 'ssh');
+  $('#btn-local-folder').classList.toggle('hidden', type !== 'local');
   const auth = $('#if-auth').value;
   $('#auth-password-field').classList.toggle('hidden', auth !== 'password');
   $('#auth-key-fields').classList.toggle('hidden', auth !== 'key');
 }
+
+function renderLocalFolders() {
+  const browser = state.localBrowser;
+  $('#folder-path').value = browser.path;
+  $('#folder-selection').textContent = browser.path;
+  $('#btn-folder-up').disabled = !browser.parent;
+  const list = $('#folder-list');
+  list.replaceChildren();
+
+  if (!browser.entries.length) {
+    const empty = document.createElement('div');
+    empty.className = 'browser-empty';
+    empty.textContent = 'No accessible subfolders';
+    list.appendChild(empty);
+    return;
+  }
+
+  for (const entry of browser.entries) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'folder-item';
+
+    const icon = document.createElement('span');
+    icon.className = 'folder-icon';
+    icon.textContent = '📁';
+    const name = document.createElement('span');
+    name.className = 'folder-name';
+    name.textContent = entry.name;
+    button.append(icon, name);
+
+    if (entry.symlink) {
+      const badge = document.createElement('span');
+      badge.className = 'folder-badge';
+      badge.textContent = 'link';
+      button.appendChild(badge);
+    }
+    button.addEventListener('click', () => loadLocalFolders(entry.path));
+    list.appendChild(button);
+  }
+}
+
+let localFolderRequest = 0;
+
+async function loadLocalFolders(requestedPath, { quiet = false } = {}) {
+  const requestId = ++localFolderRequest;
+  $('#folder-loading').classList.remove('hidden');
+  $('#folder-error').classList.add('hidden');
+  $('#btn-folder-select').disabled = true;
+  try {
+    const query = new URLSearchParams();
+    if (requestedPath) query.set('path', requestedPath);
+    const encoded = query.toString();
+    const result = await api(`/api/local/directories${encoded ? `?${encoded}` : ''}`);
+    if (requestId !== localFolderRequest) return true;
+    state.localBrowser = result;
+    renderLocalFolders();
+    $('#btn-folder-select').disabled = false;
+    return true;
+  } catch (err) {
+    if (requestId !== localFolderRequest) return true;
+    if (!quiet) {
+      const box = $('#folder-error');
+      box.textContent = err.message;
+      box.classList.remove('hidden');
+    }
+    return false;
+  } finally {
+    if (requestId === localFolderRequest) $('#folder-loading').classList.add('hidden');
+  }
+}
+
+async function openLocalFolderPicker() {
+  $('#modal-local-folder').classList.remove('hidden');
+  const preferred = $('#if-dest').value.trim() || null;
+  const candidates = [...new Set([preferred, '/data', null, '/'])];
+  for (let i = 0; i < candidates.length; i += 1) {
+    if (await loadLocalFolders(candidates[i], { quiet: i < candidates.length - 1 })) return;
+  }
+}
+
+$('#btn-local-folder').addEventListener('click', openLocalFolderPicker);
+$('#btn-folder-up').addEventListener('click', () => {
+  if (state.localBrowser.parent) loadLocalFolders(state.localBrowser.parent);
+});
+$('#btn-folder-root').addEventListener('click', () => loadLocalFolders(state.localBrowser.root || '/'));
+$('#btn-folder-refresh').addEventListener('click', () => loadLocalFolders(state.localBrowser.path));
+$('#btn-folder-go').addEventListener('click', () => loadLocalFolders($('#folder-path').value.trim()));
+$('#folder-path').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    loadLocalFolders(e.currentTarget.value.trim());
+  }
+});
+$('#btn-folder-select').addEventListener('click', () => {
+  $('#if-dest').value = state.localBrowser.path;
+  $('#modal-local-folder').classList.add('hidden');
+  $('#if-dest').focus();
+});
 
 $('#if-type').addEventListener('change', syncInstanceForm);
 $('#if-auth').addEventListener('change', syncInstanceForm);
@@ -620,7 +720,9 @@ $$('.modal-root').forEach((root) => {
   });
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') $$('.modal-root').forEach((m) => m.classList.add('hidden'));
+  if (e.key !== 'Escape') return;
+  const openModals = $$('.modal-root').filter((m) => !m.classList.contains('hidden'));
+  openModals.at(-1)?.classList.add('hidden');
 });
 
 /* ------------------------------ boot ------------------------------ */

@@ -147,6 +147,7 @@ code {
 label { display: flex; flex-direction: column; gap: 5px; font-size: 13px; }
 label > span { color: var(--muted); font-size: 12px; }
 label em { font-style: normal; }
+.field { display: flex; flex-direction: column; gap: 5px; }
 
 input, select, textarea {
   background: var(--bg-soft);
@@ -171,6 +172,8 @@ textarea { font-family: var(--mono); font-size: 12px; resize: vertical; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
 #instance-form { display: flex; flex-direction: column; gap: 10px; }
 #instance-form label.grow { width: 100%; }
+.path-picker { display: flex; align-items: stretch; gap: 8px; }
+.path-picker input { flex: 1; min-width: 0; }
 
 .btn {
   background: var(--card-2);
@@ -300,7 +303,39 @@ textarea { font-family: var(--mono); font-size: 12px; resize: vertical; }
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
 }
 .modal.narrow { width: 440px; }
+.modal.folder-modal { width: 680px; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.modal-head p { margin: 3px 0 0; }
+.folder-toolbar { display: flex; align-items: center; gap: 7px; margin-bottom: 10px; }
+.folder-toolbar input { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; }
+.folder-list {
+  min-height: 220px;
+  max-height: 46vh;
+  overflow-y: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: var(--bg-soft);
+}
+.folder-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border-soft);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.folder-item:last-child { border-bottom: 0; }
+.folder-item:hover, .folder-item:focus-visible { background: var(--card-2); outline: none; }
+.folder-icon { opacity: 0.9; }
+.folder-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-badge { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+.folder-selection { max-width: 58%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
 .modal-x {
   background: none;
   border: none;
@@ -396,4 +431,7 @@ textarea { font-family: var(--mono); font-size: 12px; resize: vertical; }
   .sidebar { flex-direction: row; align-items: center; }
   .instance-list { flex-direction: row; }
   .job-head { grid-template-columns: 1fr; }
+  .folder-toolbar { flex-wrap: wrap; }
+  .folder-toolbar input { order: -1; flex-basis: 100%; }
+  .folder-selection { display: none; }
 }
